@@ -1,60 +1,80 @@
 import streamlit as st
 from openai import OpenAI
 
-# Show title and description.
-st.title("📄 Document question answering")
+# --- App Title and Description ---
+# Sets the title and a brief description of the Streamlit app.
+st.title("📄 Document Question Answering")
 st.write(
-    "Upload a document below and ask a question about it – GPT will answer! "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
+    "Upload a document (.txt or .md) and ask a question. The app will use an AI model to find the answer within the document."
+    " You'll need an OpenAI API key to use this app. You can get one from the [OpenAI Platform](https://platform.openai.com/account/api-keys)."
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-# openai_api_key = st.text_input("OpenAI API Key", type="password")
-openai_api_key = st.secrets["API_KEY"]
+# --- API Key Configuration ---
+# Tries to get the OpenAI API key from Streamlit's secrets management.
+# This is a secure way to store sensitive information.
+try:
+    openai_api_key = st.secrets["API_KEY"]
+except (KeyError, FileNotFoundError):
+    st.error(
+        "ERROR: OpenAI API key not found. Please add it to your secrets file.", icon="🚨")
+    st.stop()
 
 
-api_key, base_url = st.secrets["API_KEY"], st.secrets["BASE_URL"]
-selected_model = "google/gemma-3-1b-it:free"
-model = chat_openrouter.ChatOpenRouter(model_name=selected_model)
-
+# --- Main Application Logic ---
+# This block only runs if the API key is available.
 if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
+    st.info(
+        "Please add your OpenAI API key to your secrets file to continue.", icon="🗝️")
 else:
-
-    # Create an OpenAI client.
+    # Create an OpenAI client instance with the provided API key.
     client = OpenAI(api_key=openai_api_key)
 
-    # Let the user upload a file via `st.file_uploader`.
+    # --- File Uploader ---
+    # Allows the user to upload a document.
+    # The app will accept .txt and .md files.
     uploaded_file = st.file_uploader(
-        "Upload a document (.txt or .md)", type=("txt", "md")
+        "Upload your document", type=("txt", "md")
     )
 
-    # Ask the user for a question via `st.text_area`.
+    # --- Question Input ---
+    # A text area for the user to ask their question.
+    # This input is disabled until a file is uploaded to guide the user.
     question = st.text_area(
-        "Now ask a question about the document!",
-        placeholder="Can you give me a short summary?",
+        "Ask a question about the document",
+        placeholder="e.g., Can you give me a short summary of the document?",
         disabled=not uploaded_file,
+        height=100,
     )
 
+    # --- Generate and Display Answer ---
+    # This block runs only when a file has been uploaded and a question has been asked.
     if uploaded_file and question:
+        try:
+            # Read the content of the uploaded file.
+            document = uploaded_file.read().decode()
 
-        # Process the uploaded file and question.
-        document = uploaded_file.read().decode()
-        messages = [
-            {
-                "role": "user",
-                "content": f"Here's a document: {document} \n\n---\n\n {question}",
-            }
-        ]
+            # Construct the prompt for the AI model.
+            # It includes the document content and the user's question.
+            messages = [
+                {
+                    "role": "user",
+                    "content": f"You are an expert at answering questions based on a provided document.\n\n"
+                    f"Here is the document:\n\n---\n\n{document}\n\n---\n\n"
+                    f"Based on the document, please answer the following question: {question}",
+                }
+            ]
 
-        # Generate an answer using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            stream=True,
-        )
+            # Call the OpenAI API to generate a response.
+            # We use stream=True to get the response chunk by chunk for a better user experience.
+            with st.spinner("Generating answer..."):
+                stream = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=messages,
+                    stream=True,
+                )
 
-        # Stream the response to the app using `st.write_stream`.
-        st.write_stream(stream)
+                # Use st.write_stream to display the streaming response in the app.
+                st.write_stream(stream)
+
+        except Exception as e:
+            st.error(f"An error occurred: {e}", icon="🚨")
